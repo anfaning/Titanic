@@ -1,0 +1,215 @@
+---
+title: "data_distribution_cha"
+output: html_document
+---
+
+```{r, echo= F, message= F, results='hide', warning=F}
+library(e1071)
+library(data.table)
+library(ggplot2)
+library(MASS)
+library(knitr)
+library(gridExtra)
+library(Rcmdr)
+library(dplyr)
+library(gtools)
+
+
+options(scipen = 999, digits = 2)
+
+# read table 
+WHB <- read.csv("data_final_0612.csv", 1)
+num_to_fac <- c("V001"
+                , "V002"
+                , "V007"
+                , "V008"
+                , "V009"
+                , "V108A"
+                , "V109"
+                , "V113A"
+                , "V113B"
+                , "V113C"
+                , "V113D"
+                , "V113E"
+                , "V113F"
+                , "V113G"
+                , "V113H"
+                , "V113I"
+                , "V113J"
+                , "V115"
+                , "V119A"
+                , "V119B"
+                , "V119C"
+                , "V119D"
+                , "V119E"
+                , "V119F"
+                , "V120"
+                , "V121"
+                , "V122"
+                , "V123"
+                , "V126"
+                , "V127"
+                , "V128"
+                , "V202"
+                , "V205"
+                , "V206"
+                , "V207"
+                , "V208"
+                , "V209"
+                , "V210"
+                , "V211"
+                , "V226"
+                , "V230"
+                , "V236"
+                , "V237"
+                , "V238"
+                , "V240"
+                , "V241"
+                , "V242"
+                , "V302"
+                , "V303")
+                
+WHB[, num_to_fac] <- lapply(WHB[, num_to_fac], as.factor)
+# str(WHB[, num_to_fac])
+
+fac_to_num <- c("V108"
+, "V108D"
+, "V204"
+, "V220"
+, "V224"
+, "V227"
+, "V404"
+, "V405"
+, "V406"
+, "V407"
+, "V408"
+, "V414"
+, "V415"
+, "V416"
+, "V417"
+, "V418")
+WHB[, fac_to_num] <- lapply(WHB[, fac_to_num], as.numeric)
+# str(WHB[, fac_to_num])
+
+
+WHB.V002.11 <- WHB[WHB$V002 == 11, ] # 따거
+WHB.V002.21 <- WHB[WHB$V002 == 21, ] # 꼭건달
+WHB.V002.22 <- WHB[WHB$V002 == 22, ] # 꼭잔
+```
+
+
+```{r, echo= F, message= F, warning=F}
+## defmacro 정의
+defmacro <- function (..., expr) 
+{
+  expr <- substitute(expr)
+  len <- length(expr)
+  expr[3:(len + 1)] <- expr[2:len]
+  expr[[2]] <- quote(on.exit(remove(list = objects(pattern = "^\\.\\.", 
+                                                   all.names = TRUE))))
+  a <- substitute(list(...))[-1]
+  nn <- names(a)
+  if (is.null(nn)) 
+    nn <- rep("", length(a))
+  for (i in seq(length.out = length(a))) {
+    if (nn[i] == "") {
+      nn[i] <- paste(a[[i]])
+      msg <- paste(a[[i]], gettext("not supplied", domain = "R-Rcmdr"))
+      a[[i]] <- substitute(stop(foo), list(foo = msg))
+    }
+  }
+  names(a) <- nn
+  a <- as.list(a)
+  ff <- eval(substitute(function() {
+    tmp <- substitute(body)
+    eval(tmp, parent.frame())
+  }, list(body = expr)))
+  formals(ff) <- a
+  mm <- match.call()
+  mm$expr <- NULL
+  mm[[1]] <- as.name("macro")
+  expr[[2]] <- NULL
+  attr(ff, "source") <- c(deparse(mm), deparse(expr))
+  ff
+}
+
+
+## chategorical distribution 함수 등록
+options(scipen = 999)
+
+## Character Value Distribution
+
+
+C_smryT <- function(df, v_nm){
+  
+  c_var <- as.data.frame(df[,v_nm])
+  
+  cnt  = nrow(c_var)
+  miss = sum(is.na(c_var))
+  dist <- as.data.frame(table(c_var))
+  
+  st <- data.frame(rbind(cnt,miss))
+  colnames(st) <- v_nm
+  colnames(dist) <- c('type',v_nm)
+  
+  smry <- rbind(cbind(type = row.names(st), st), dist)
+  
+  # smry.tmp <- rbind(cbind(type = row.names(st), st), dist)
+  
+  # smry <- data.frame(smry.tmp,
+  #                    ratio = round(smry.tmp[,2] / cnt * 100, 2))
+  
+  return(smry)
+}
+
+C_smry <- defmacro(df, var1, var2, tg, expr = {
+  smry <- merge(C_smryT(df, var2),
+                merge(merge(C_smryT(df[df[, var2] == 11, ], var2),
+                      C_smryT(df[df[, var2] == 21, ], var2), by = 'type', all = T),
+                      C_smryT(df[df[, var2] == 22, ], var2), by = 'type', all = T),
+                by = 'type', all.x = T)
+  colnames(smry) <- c('type', 'total', 'PreahDak', 'KoukKondal', 'KoukChan')
+  smry.A <- rbind(arrange(smry[ smry$type %in% c("cnt", "miss"),], type),
+                  arrange(smry[!smry$type %in% c("cnt", "miss"),], type))
+  
+  
+    ## ggplot
+    gg <- ggplot(WHB, aes(var1, fill = factor(V002)))
+    
+    ## mosaicplot
+    mosaic <- function(){
+      mosaicplot(~ V002 + var1, data = WHB, shade = T,
+                 color = T, cex = 0.6, ylab = var2, main = var2)
+    }
+
+})
+
+Output <- function(){
+  gg + geom_bar()
+  }
+
+C_smryT(WHB, "V002")
+C_smry(WHB, V106, "V106", "V002")
+kable(smry.A)
+
+geom    
+## ggplot
+    gg <- ggplot(WHB, aes(V106, fill = factor(V002)))
+    
+    ## mosaicplot
+    mosaic <- function(){
+      mosaicplot(~ V002 + V106, data = WHB, shade = T,
+                 color = T, cex = 0.6, ylab = "V106", main = "V106")
+    }
+mosaic()
+
+```
+
+
+#### V106
+```{r, echo = F, warning=F, fig.width= 8, fig.height= 6}
+C_smryT(WHB, "V106")
+C_smry(WHB, V106, "V106", "V002");
+kable(smry3); Output(); mosaic()
+```
+
