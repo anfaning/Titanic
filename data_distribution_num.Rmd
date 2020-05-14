@@ -1,0 +1,149 @@
+---
+title: "data_distribution_num"
+output: word_document
+---
+
+```{r, echo= F, message= F, results='hide', warning=F}
+library(e1071)
+library(data.table)
+library(ggplot2)
+library(MASS)
+library(knitr)
+library(corrplot)
+library(gridExtra)
+library(Rcmdr)
+
+options(scipen = 999, digits = 2)
+
+# Import the training set: train
+train_url <- "http://s3.amazonaws.com/assets.datacamp.com/course/Kaggle/train.csv"
+train <- read.csv(train_url)
+
+# Import the testing set: test
+test_url <- "http://s3.amazonaws.com/assets.datacamp.com/course/Kaggle/test.csv"
+test <- read.csv(test_url)
+
+full  <- data.frame(dplyr::bind_rows(train, test)) # bind training & test data
+
+train$Survived <- as.factor(train$Survived)
+full$Survived <- as.factor(full$Survived)
+
+```
+
+
+```{r, echo= F, message= F, warning=F}
+## defmacro 정의
+defmacro <- function (..., expr) 
+{
+  expr <- substitute(expr)
+  len <- length(expr)
+  expr[3:(len + 1)] <- expr[2:len]
+  expr[[2]] <- quote(on.exit(remove(list = objects(pattern = "^\\.\\.", 
+                                                   all.names = TRUE))))
+  a <- substitute(list(...))[-1]
+  nn <- names(a)
+  if (is.null(nn)) 
+    nn <- rep("", length(a))
+  for (i in seq(length.out = length(a))) {
+    if (nn[i] == "") {
+      nn[i] <- paste(a[[i]])
+      msg <- paste(a[[i]], gettext("not supplied", domain = "R-Rcmdr"))
+      a[[i]] <- substitute(stop(foo), list(foo = msg))
+    }
+  }
+  names(a) <- nn
+  a <- as.list(a)
+  ff <- eval(substitute(function() {
+    tmp <- substitute(body)
+    eval(tmp, parent.frame())
+  }, list(body = expr)))
+  formals(ff) <- a
+  mm <- match.call()
+  mm$expr <- NULL
+  mm[[1]] <- as.name("macro")
+  expr[[2]] <- NULL
+  attr(ff, "source") <- c(deparse(mm), deparse(expr))
+  ff
+}
+
+
+## numdist 정의
+numdist <- defmacro(var1, var2, expr = {
+
+  smry1 <- numSummary(full[, c(var2)], statistics = c("mean", "sd", "IQR",
+                                               "quantiles", "cv", "skewness", "kurtosis"),
+                      quantiles = c(0, .01, .05, .1, .2, .3, .4, .5, .6, .7, .8, .9, .95, .99, 1))
+  smry2 <- t(cbind(n = length(full[, var2]), nmiss = sum(is.na(full[, var2])), smry1$table))
+  
+  full.s1 <- full[full$Survived == '1' & is.na(full$Survived) == F, ]
+  smry1.s1 <- numSummary(full.s1[, c(var2)], statistics = c("mean", "sd", "IQR",
+                                               "quantiles", "cv", "skewness", "kurtosis"),
+                      quantiles = c(0, .01, .05, .1, .2, .3, .4, .5, .6, .7, .8, .9, .95, .99, 1))
+  smry2.s1 <- t(cbind(n = length(full.s1[, c(var2)]),
+                      nmiss = sum(is.na(full.s1[, c(var2)])),
+                      smry1.s1$table))
+  
+  table(full$Survived)
+  full.s0 <- full[full$Survived == '0' & is.na(full$Survived) == F, ]
+  smry1.s0 <- numSummary(full.s0[, c(var2)], statistics = c("mean", "sd", "IQR",
+                                               "quantiles", "cv", "skewness", "kurtosis"),
+                      quantiles = c(0, .01, .05, .1, .2, .3, .4, .5, .6, .7, .8, .9, .95, .99, 1))
+  smry2.s0 <- t(cbind(n = length(full.s0[, c(var2)]),
+                      nmiss = sum(is.na(full.s0[, c(var2)])),
+                      smry1.s0$table))
+  
+  smry <- cbind(smry2, smry2.s1, smry2.s0) 
+  colnames(smry) <- c("Total", "Survived", "NotSurvived")
+
+  var    <- var.test(var1 ~ Survived, data = train)
+  ttest  <- t.test(var1 ~ Survived, data = train)
+  wilcox <- wilcox.test(var1 ~ Survived, data = train)
+  
+  bp <- ggplot(train, aes(Survived, var1))
+  ds <- ggplot(train, aes(x = var1))
+  ds1 <- ggplot(train, aes(x = sqrt(var1 + 1)))
+  ds2 <- ggplot(train, aes(x = log(var1 + 1 )))
+  ds3 <- ggplot(train, aes(x = (1 / var1 + 1)))
+
+})
+
+Output <- function(){
+  
+  print(var)
+  print(ttest)
+  print(wilcox)
+  grid.arrange(bp + geom_boxplot(aes(fill = Survived)),
+               ds + geom_density(aes(group = Survived, colour = Survived, linetype = Survived)),
+               ncol = 2)
+  
+  grid.arrange(ds + geom_density(), 
+               ds1 + geom_density(),
+               ds2 + geom_density(),
+               ds3 + geom_density(), ncol = 2, nrow = 2)
+}
+
+
+# Age, SibSp, Parch, Fare 
+
+```
+
+
+#### Age: 연령
+```{r, echo = F, warning=F, fig.width= 10, fig.height= 3.5}
+numdist(Age, "Age"); kable(smry); Output()
+```
+
+#### SibSp: 동승한 남매/배우자 수
+```{r, echo = F, warning= F, fig.width= 10, fig.height= 3.5}
+numdist(SibSp, "SibSp"); kable(smry); Output()
+```
+
+#### Parch: 동승한 부모/어린이 수
+```{r, echo = F, warning=F, fig.width= 10, fig.height= 3.5}
+numdist(Parch, "Parch"); kable(smry); Output()
+```
+
+#### Fare: 탑승요금
+```{r, echo = F, warning=F, fig.width= 10, fig.height= 3.5}
+numdist(Fare, "Fare"); kable(smry); Output()
+```

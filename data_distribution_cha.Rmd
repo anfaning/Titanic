@@ -1,0 +1,138 @@
+---
+title: "data_distribution_num"
+output: word_document
+---
+
+```{r, echo= F, message= F, results='hide', warning=F}
+library(e1071)
+library(data.table)
+library(ggplot2)
+library(MASS)
+library(knitr)
+library(corrplot)
+library(gridExtra)
+library(Rcmdr)
+
+options(scipen = 999, digits = 2)
+
+# Import the training set: train
+train_url <- "http://s3.amazonaws.com/assets.datacamp.com/course/Kaggle/train.csv"
+train <- read.csv(train_url)
+
+# Import the testing set: test
+test_url <- "http://s3.amazonaws.com/assets.datacamp.com/course/Kaggle/test.csv"
+test <- read.csv(test_url)
+
+full  <- data.frame(dplyr::bind_rows(train, test)) # bind training & test data
+
+var <- c('Pclass', 'Sex', 'Ticket', 'Cabin', 'Embarked')
+train[, var] <- lapply(train[, var], as.factor)
+full[, var] <- lapply(full[, var], as.factor)
+
+train.dt <- data.table(train)
+full.dt <- data.table(full)
+
+```
+
+
+```{r, echo= F, message= F, warning=F}
+## defmacro 정의
+defmacro <- function (..., expr) 
+{
+  expr <- substitute(expr)
+  len <- length(expr)
+  expr[3:(len + 1)] <- expr[2:len]
+  expr[[2]] <- quote(on.exit(remove(list = objects(pattern = "^\\.\\.", 
+                                                   all.names = TRUE))))
+  a <- substitute(list(...))[-1]
+  nn <- names(a)
+  if (is.null(nn)) 
+    nn <- rep("", length(a))
+  for (i in seq(length.out = length(a))) {
+    if (nn[i] == "") {
+      nn[i] <- paste(a[[i]])
+      msg <- paste(a[[i]], gettext("not supplied", domain = "R-Rcmdr"))
+      a[[i]] <- substitute(stop(foo), list(foo = msg))
+    }
+  }
+  names(a) <- nn
+  a <- as.list(a)
+  ff <- eval(substitute(function() {
+    tmp <- substitute(body)
+    eval(tmp, parent.frame())
+  }, list(body = expr)))
+  formals(ff) <- a
+  mm <- match.call()
+  mm$expr <- NULL
+  mm[[1]] <- as.name("macro")
+  expr[[2]] <- NULL
+  attr(ff, "source") <- c(deparse(mm), deparse(expr))
+  ff
+}
+
+
+## chategorical distribution 함수 등록
+options(scipen = 999)
+
+Categoical_var <- 
+  defmacro(var1, 'var2', expr = {
+    smry1 <- train.dt[order(var1),
+                      list(Total = length(PassengerId),
+                           Target = sum(Survived),
+                           Control = length(PassengerId) - sum(Survived),
+                           Total.Percent = length(PassengerId) / length(train.dt$PassengerId) * 100,
+                           Target.Percent = (sum(Survived) / length(PassengerId)) * 100,
+                           Lift = (sum(Survived) / length(PassengerId)) /
+                             (sum(train.dt$Survived) / length(train.dt$PassengerId))
+                           ),
+                      by = var2]
+    
+    smry2 <- train.dt[, list('Total',
+                             Total = length(PassengerId),
+                             Target = sum(Survived),
+                             Control = length(PassengerId) - sum(Survived),  
+                             Total.Percent = 100,
+                             Target.Percent = sum(Survived) / length(PassengerId) * 100,
+                             Lift = 1)]
+    
+    setnames(smry2, 1, var2)
+    smry3 <- rbind(smry1, smry2, fill = TRUE)
+    
+    ## Chisq-test
+    chi <- chisq.test(xtabs(~ Survived + var1, data = train))
+    
+    ## ggplot
+    gg <- ggplot(train, aes(var1, fill = factor(Survived)))
+    
+    ## mosaicplot
+    mosaic <- function(){
+      mosaicplot(~ Survived + var1, data = train, shade = T,
+                 color = T, cex = 0.6, ylab = var2, main = var2)
+    }
+
+})
+
+Output <- function(){
+  print(chi)
+  gg + geom_bar()
+  }
+
+
+# Pclass, Sex, Ticket,  Cabin, Embarked, 
+```
+
+
+#### Pclass: 탑승 등급
+```{r, echo = F, warning=F, fig.width= 8, fig.height= 6}
+Categoical_var(Pclass, 'Pclass'); kable(smry3); Output(); mosaic()
+```
+
+#### Sex: 성별
+```{r, echo = F, warning=F, fig.width= 8, fig.height= 6}
+Categoical_var(Sex, 'Sex'); kable(smry3); Output(); mosaic()
+```
+
+#### Embarked: 탑승 선착장
+```{r, echo = F, warning=F, fig.width= 8, fig.height= 6}
+Categoical_var(Embarked, 'Embarked'); kable(smry3); Output(); mosaic()
+```
